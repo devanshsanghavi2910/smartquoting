@@ -20,15 +20,16 @@ alias_map = {}
 
 if price_file:
     df = pd.read_excel(price_file)
+    df.columns = df.columns.str.strip().str.lower()  # Normalize column names
     for _, row in df.iterrows():
-        sku = str(row["NAME IN TALLY"]).strip()
+        sku = str(row["name in tally"]).strip()
         quote_data[sku] = {
-            "models": str(row["MODEL"]).lower() if not pd.isna(row["MODEL"]) else "",
-            "qty_box": int(row["Qty/Box"]) if not pd.isna(row["Qty/Box"]) else None,
+            "models": str(row["model"]).lower() if not pd.isna(row["model"]) else "",
+            "qty_box": int(row["qty/box"]) if not pd.isna(row["qty/box"]) else None,
             "20pcs": row["20pcs.1"] if not pd.isna(row["20pcs.1"]) else None,
             "100pc": row["100pcs.1"] if not pd.isna(row["100pcs.1"]) else None,
-            "1box": row["1 Box.1"] if not pd.isna(row["1 Box.1"]) else None,
-            "4box": row["4 Box.1"] if not pd.isna(row["4 Box.1"]) else None,
+            "1box": row["1 box.1"] if not pd.isna(row["1 box.1"]) else None,
+            "4box": row["4 box.1"] if not pd.isna(row["4 box.1"]) else None,
         }
 
 if alias_file:
@@ -114,4 +115,5 @@ if st.button("🧠 Generate Quote") and raw_input:
                 st.write(f"• {matched} – {result}")
         else:
             st.write(f"• Couldn't match: '{line.strip()}'")
+
 
