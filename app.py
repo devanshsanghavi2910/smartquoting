@@ -87,7 +87,7 @@ if file:
                     if any(token in line for token in quote_data[sku]["models"].split('/')):
                         matched = sku
                         break
-            qty_match = re.search(r"(\d+)[\s]*pcs|box", line)
+            qty_match = re.search(r"(\\d+)[\\s]*(pcs|pc|box)?", line)
             qty = int(qty_match.group(1)) if qty_match else 0
 
             if matched and matched in quote_data:
