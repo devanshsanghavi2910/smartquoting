@@ -74,7 +74,7 @@ if file:
 
     # --- Process Input ---
     if st.button("🧠 Generate Quote") and raw_input:
-                st.subheader("📋 Quotation Output")
+        st.subheader("📋 Quotation Output")
         lines = raw_input.lower().split('\n')
         for line in lines:
             if not line.strip():
