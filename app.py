@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import re
@@ -6,9 +5,11 @@ import re
 st.set_page_config(page_title="Smart Quoting Dashboard", layout="centered")
 st.title("📦 Smart Quoting Dashboard")
 
+# 1. Upload SKU Price Sheet
 st.header("1. Upload SKU Price Sheet")
 price_file = st.file_uploader("Upload Excel File (with MODEL, NAME IN TALLY, Qty/Box, and slab columns)", type=["xlsx"])
 
+# 2. Optional alias mapping
 st.header("2. Optional: Upload Alias Mapping")
 alias_file = st.file_uploader("Upload alias mapping CSV (Alias, SKU)", type=["csv"])
 
@@ -17,70 +18,84 @@ alias_map = {}
 
 if price_file:
     df = pd.read_excel(price_file)
+    # Normalize column names
     df.columns = df.columns.str.strip().str.lower()
+
+    # Find the Qty/Box column dynamically
+    qty_box_col = next((c for c in df.columns if "qty" in c and "box" in c), None)
+
+    # Build quote_data dict
     for _, row in df.iterrows():
         sku = str(row["name in tally"]).strip()
         quote_data[sku] = {
             "models": str(row["model"]).lower() if not pd.isna(row["model"]) else "",
-            "qty_box": int(row["qty/box"]) if not pd.isna(row["qty/box"]) else None,
-            "20pcs": row["20pcs.1"] if not pd.isna(row["20pcs.1"]) else None,
-            "100pc": row["100pcs.1"] if not pd.isna(row["100pcs.1"]) else None,
-            "1box": row["1 box.1"] if not pd.isna(row["1 box.1"]) else None,
-            "4box": row["4 box.1"] if not pd.isna(row["4 box.1"]) else None,
+            "qty_box": int(row[qty_box_col]) if qty_box_col and not pd.isna(row[qty_box_col]) else None,
+            "20pcs": row.get("20pcs.1"),
+            "100pc": row.get("100pcs.1"),
+            "1box": row.get("1 box.1"),
+            "4box": row.get("4 box.1"),
         }
 
 if alias_file:
     alias_df = pd.read_csv(alias_file)
     for _, row in alias_df.iterrows():
         alias = str(row["Alias"]).lower().strip()
-        sku = str(row["SKU"]).strip()
+        sku   = str(row["SKU"]).strip()
         alias_map[alias] = sku
 
+# 3. Paste customer message
 st.header("3. Paste Customer Message")
 raw_input = st.text_area("Paste customer enquiry here:", height=150)
 
 if st.button("🧠 Generate Quote") and raw_input:
     st.subheader("📋 Quotation Output")
-    lines = raw_input.lower().split('\n')
+    lines = raw_input.lower().split("\n")
+
     for line in lines:
         if not line.strip():
             continue
 
+        # 1) Alias match
         matched = None
         for alias, sku in alias_map.items():
             if alias in line:
                 matched = sku
                 break
 
+        # 2) Model-based match fallback
         if not matched:
-            for sku in quote_data:
-                models = quote_data[sku]["models"]
-                if models and any(token in line for token in models.split('/')):
+            for sku, info in quote_data.items():
+                models = info["models"]
+                if models and any(tok in line for tok in models.split("/")):
                     matched = sku
                     break
 
+        # 3) Quantity extraction
         qty = None
-        box_match = re.search(r"(\d+)\s*box(?:es)?", line)
-        pc_match = re.search(r"(\d+)\s*(?:pcs?|)", line)
+        # a) boxes
+        m_box = re.search(r"(\d+)\s*box(?:es)?", line)
+        # b) pieces
+        m_pc  = re.search(r"(\d+)\s*(?:pcs?|pieces?)", line)
 
         if matched and matched in quote_data:
-            box_qty = quote_data[matched].get("qty_box")
+            box_qty = quote_data[matched]["qty_box"]
 
-            if box_match and box_qty:
-                qty = int(box_match.group(1)) * box_qty
-            elif pc_match:
-                qty = int(pc_match.group(1))
+            if m_box and box_qty:
+                qty = int(m_box.group(1)) * box_qty
+            elif m_pc:
+                qty = int(m_pc.group(1))
             else:
-                num_match = re.search(r"(\d+)", line)
-                qty = int(num_match.group(1)) if num_match else None
+                # last resort: any number
+                m_num = re.search(r"(\d+)", line)
+                qty = int(m_num.group(1)) if m_num else None
 
+            # Gather slabs and apply fallbacks
             slabs = {
                 "20pcs": quote_data[matched].get("20pcs"),
                 "100pc": quote_data[matched].get("100pc"),
                 "1box": quote_data[matched].get("1box"),
-                "4box": quote_data[matched].get("4box")
+                "4box": quote_data[matched].get("4box"),
             }
-
             if slabs["100pc"] is None:
                 slabs["100pc"] = slabs["20pcs"]
             if slabs["1box"] is None:
@@ -88,19 +103,20 @@ if st.button("🧠 Generate Quote") and raw_input:
             if slabs["4box"] is None:
                 slabs["4box"] = slabs["1box"]
 
+            # Pricing logic
             def compute_price(qty, slabs, box_qty):
                 try:
                     if qty is None or qty < 20:
                         return (None, "❌ Minimum 20 pcs")
                     if qty < 100:
                         p1 = slabs["20pcs"]
-                        p2 = slabs["100pc"] if slabs["100pc"] is not None else p1
+                        p2 = slabs["100pc"]
                         price = p1 + (p2 - p1) * ((qty - 20) / 80)
                     elif box_qty and qty == box_qty:
                         price = slabs["1box"]
                     elif box_qty and qty < box_qty:
                         p1 = slabs["100pc"]
-                        p2 = slabs["1box"] or p1
+                        p2 = slabs["1box"]
                         price = p1 + (p2 - p1) * ((qty - 100) / (box_qty - 100))
                     elif box_qty and qty >= 4 * box_qty:
                         price = slabs["4box"]
@@ -108,18 +124,14 @@ if st.button("🧠 Generate Quote") and raw_input:
                         price = slabs["1box"]
                     else:
                         price = slabs["100pc"]
-                    total = round(price * qty, 2)
-                    return (price, total)
+                    return (price, round(price * qty, 2))
                 except:
                     return (None, "❌ Error in price logic")
 
-            price, result = compute_price(qty, slabs, box_qty)
-            if price:
-                st.write(f"• {matched} – {qty} pcs @ ₹{price:.2f} = ₹{result:.2f}")
+            unit_price, total = compute_price(qty, slabs, quote_data[matched]["qty_box"])
+            if unit_price is not None:
+                st.write(f"• {matched} – {qty} pcs @ ₹{unit_price:.2f} = ₹{total:.2f}")
             else:
-                st.write(f"• {matched} – {result}")
+                st.write(f"• {matched} – {total}")
         else:
             st.write(f"• Couldn't match: '{line.strip()}'")
-
-
-
