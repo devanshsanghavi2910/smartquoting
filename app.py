@@ -87,11 +87,13 @@ if file:
                     if any(token in line for token in quote_data[sku]["models"].split('/')):
                         matched = sku
                         break
-            qty_match = re.search(r"(\\d+)", line)
-if qty_match:
-    qty = int(qty_match.group(1))
-else:
-    qty = None
+                        # Updated quantity detection (robust against '100pc', '100 pcs', 'box', etc.)
+            qty_match = re.search(r"(\d+)", line)
+            if qty_match:
+                qty = int(qty_match.group(1))
+            else:
+                qty = None
+
 
             if matched and matched in quote_data:
                 slabs = {
