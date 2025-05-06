@@ -7,7 +7,10 @@ st.title("📦 Smart Quoting Dashboard")
 
 # 1. Upload SKU Price Sheet
 st.header("1. Upload SKU Price Sheet")
-price_file = st.file_uploader("Upload Excel File (with MODEL, NAME IN TALLY, Qty/Box, and slab columns)", type=["xlsx"])
+price_file = st.file_uploader(
+    "Upload Excel File (with MODEL, NAME IN TALLY, Qty/Box, and slab columns)", 
+    type=["xlsx"]
+)
 
 # 2. Optional alias mapping
 st.header("2. Optional: Upload Alias Mapping")
@@ -16,19 +19,18 @@ alias_file = st.file_uploader("Upload alias mapping CSV (Alias, SKU)", type=["cs
 quote_data = {}
 alias_map = {}
 
+# Load price sheet
 if price_file:
     df = pd.read_excel(price_file)
     # Normalize column names
     df.columns = df.columns.str.strip().str.lower()
-
-    # Find the Qty/Box column dynamically
+    # Find the Qty/Box column (whatever its exact name)
     qty_box_col = next((c for c in df.columns if "qty" in c and "box" in c), None)
 
-    # Build quote_data dict
     for _, row in df.iterrows():
-        sku = str(row["name in tally"]).strip()
+        sku = str(row.get("name in tally", "")).strip()
         quote_data[sku] = {
-            "models": str(row["model"]).lower() if not pd.isna(row["model"]) else "",
+            "models": str(row.get("model", "")).lower(),
             "qty_box": int(row[qty_box_col]) if qty_box_col and not pd.isna(row[qty_box_col]) else None,
             "20pcs": row.get("20pcs.1"),
             "100pc": row.get("100pcs.1"),
@@ -36,12 +38,14 @@ if price_file:
             "4box": row.get("4 box.1"),
         }
 
+# Load aliases
 if alias_file:
     alias_df = pd.read_csv(alias_file)
     for _, row in alias_df.iterrows():
-        alias = str(row["Alias"]).lower().strip()
-        sku   = str(row["SKU"]).strip()
-        alias_map[alias] = sku
+        alias = str(row.get("Alias", "")).lower().strip()
+        sku   = str(row.get("SKU", "")).strip()
+        if alias and sku:
+            alias_map[alias] = sku
 
 # 3. Paste customer message
 st.header("3. Paste Customer Message")
@@ -56,11 +60,7 @@ if st.button("🧠 Generate Quote") and raw_input:
             continue
 
         # 1) Alias match
-        matched = None
-        for alias, sku in alias_map.items():
-            if alias in line:
-                matched = sku
-                break
+        matched = next((sku for alias, sku in alias_map.items() if alias in line), None)
 
         # 2) Model-based match fallback
         if not matched:
@@ -72,22 +72,20 @@ if st.button("🧠 Generate Quote") and raw_input:
 
         # 3) Quantity extraction
         qty = None
-        # a) boxes
-        m_box = re.search(r"(\d+)\s*box(?:es)?", line)
-        # b) pieces
-        m_pc  = re.search(r"(\d+)\s*(?:pcs?|pieces?)", line)
+        box_match = re.search(r"(\d+)\s*box(?:es)?", line)
+        pc_match  = re.search(r"(\d+)\s*(?:pcs?|pieces?)", line)
 
         if matched and matched in quote_data:
             box_qty = quote_data[matched]["qty_box"]
 
-            if m_box and box_qty:
-                qty = int(m_box.group(1)) * box_qty
-            elif m_pc:
-                qty = int(m_pc.group(1))
+            if box_match and box_qty:
+                qty = int(box_match.group(1)) * box_qty
+            elif pc_match:
+                qty = int(pc_match.group(1))
             else:
-                # last resort: any number
-                m_num = re.search(r"(\d+)", line)
-                qty = int(m_num.group(1)) if m_num else None
+                # last resort: grab the LAST number
+                all_nums = re.findall(r"\d+", line)
+                qty = int(all_nums[-1]) if all_nums else None
 
             # Gather slabs and apply fallbacks
             slabs = {
@@ -128,10 +126,11 @@ if st.button("🧠 Generate Quote") and raw_input:
                 except:
                     return (None, "❌ Error in price logic")
 
-            unit_price, total = compute_price(qty, slabs, quote_data[matched]["qty_box"])
+            unit_price, total = compute_price(qty, slabs, box_qty)
             if unit_price is not None:
                 st.write(f"• {matched} – {qty} pcs @ ₹{unit_price:.2f} = ₹{total:.2f}")
             else:
                 st.write(f"• {matched} – {total}")
         else:
             st.write(f"• Couldn't match: '{line.strip()}'")
+
