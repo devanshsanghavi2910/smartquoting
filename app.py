@@ -74,26 +74,32 @@ if file:
 
     # --- Process Input ---
     if st.button("🧠 Generate Quote") and raw_input:
-        st.subheader("📋 Quotation Output")
+                st.subheader("📋 Quotation Output")
         lines = raw_input.lower().split('\n')
         for line in lines:
+            if not line.strip():
+                continue  # skip empty lines
+
             matched = None
             for alias, sku in alias_map.items():
                 if alias in line:
                     matched = sku
                     break
+
             if not matched:
+                # Try matching from MODEL column if alias fails
                 for sku in quote_data:
-                    if any(token in line for token in quote_data[sku]["models"].split('/')):
+                    models = quote_data[sku]["models"]
+                    if models and any(token in line for token in models.split('/')):
                         matched = sku
                         break
-                        # Updated quantity detection (robust against '100pc', '100 pcs', 'box', etc.)
-            qty_match = re.search(r"(\d+)", line)
-            if qty_match:
-                qty = int(qty_match.group(1))
-            else:
-                qty = None
 
+            # Extract quantity
+            qty_match = re.search(r"(\d+)", line)
+            qty = int(qty_match.group(1)) if qty_match else None
+
+            # Debug print (optional)
+            # st.write(f"🔍 Matched SKU: {matched}, Qty: {qty}")
 
             if matched and matched in quote_data:
                 slabs = {
@@ -103,6 +109,32 @@ if file:
                     "4box": quote_data[matched].get("4box")
                 }
                 box_qty = quote_data[matched].get("qty_box")
+
+                def compute_price(qty, slabs, box_qty):
+                    try:
+                        if qty is None or qty < 20:
+                            return (None, "❌ Minimum 20 pcs")
+                        if qty < 100:
+                            p1 = slabs["20pcs"]
+                            p2 = slabs["100pc"] if slabs["100pc"] is not None else p1
+                            price = p1 + (p2 - p1) * ((qty - 20) / 80)
+                        elif box_qty and qty == box_qty:
+                            price = slabs["1box"] or slabs["100pc"]
+                        elif box_qty and qty < box_qty:
+                            p1 = slabs["100pc"]
+                            p2 = slabs["1box"] or p1
+                            price = p1 + (p2 - p1) * ((qty - 100) / (box_qty - 100))
+                        elif box_qty and qty >= 4 * box_qty:
+                            price = slabs["4box"] or slabs["1box"] or slabs["100pc"]
+                        elif box_qty and qty > box_qty:
+                            price = slabs["1box"] or slabs["100pc"]
+                        else:
+                            price = slabs["100pc"]
+                        total = round(price * qty, 2)
+                        return (price, total)
+                    except:
+                        return (None, "❌ Error in price logic")
+
                 price, result = compute_price(qty, slabs, box_qty)
                 if price:
                     st.write(f"• {matched} – {qty} pcs @ ₹{price:.2f} = ₹{result:.2f}")
