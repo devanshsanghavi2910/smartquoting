@@ -4,14 +4,11 @@ import pandas as pd
 import re
 
 st.set_page_config(page_title="Smart Quoting Dashboard", layout="centered")
-
 st.title("📦 Smart Quoting Dashboard")
 
-# 1. Upload price sheet
 st.header("1. Upload SKU Price Sheet")
 price_file = st.file_uploader("Upload Excel File (with MODEL, NAME IN TALLY, Qty/Box, and slab columns)", type=["xlsx"])
 
-# 2. Optional alias mapping
 st.header("2. Optional: Upload Alias Mapping")
 alias_file = st.file_uploader("Upload alias mapping CSV (Alias, SKU)", type=["csv"])
 
@@ -20,7 +17,7 @@ alias_map = {}
 
 if price_file:
     df = pd.read_excel(price_file)
-    df.columns = df.columns.str.strip().str.lower()  # Normalize column names
+    df.columns = df.columns.str.strip().str.lower()
     for _, row in df.iterrows():
         sku = str(row["name in tally"]).strip()
         quote_data[sku] = {
@@ -39,7 +36,6 @@ if alias_file:
         sku = str(row["SKU"]).strip()
         alias_map[alias] = sku
 
-# 3. Paste customer message
 st.header("3. Paste Customer Message")
 raw_input = st.text_area("Paste customer enquiry here:", height=150)
 
@@ -63,19 +59,28 @@ if st.button("🧠 Generate Quote") and raw_input:
                     matched = sku
                     break
 
-        qty_match = re.search(r"(\d+)", line)
-        qty = int(qty_match.group(1)) if qty_match else None
+        qty = None
+        box_match = re.search(r"(\d+)\s*box(?:es)?", line)
+        pc_match = re.search(r"(\d+)\s*(?:pcs?|)", line)
 
         if matched and matched in quote_data:
+            box_qty = quote_data[matched].get("qty_box")
+
+            if box_match and box_qty:
+                qty = int(box_match.group(1)) * box_qty
+            elif pc_match:
+                qty = int(pc_match.group(1))
+            else:
+                num_match = re.search(r"(\d+)", line)
+                qty = int(num_match.group(1)) if num_match else None
+
             slabs = {
                 "20pcs": quote_data[matched].get("20pcs"),
                 "100pc": quote_data[matched].get("100pc"),
                 "1box": quote_data[matched].get("1box"),
                 "4box": quote_data[matched].get("4box")
             }
-            box_qty = quote_data[matched].get("qty_box")
 
-            # Slab fallback
             if slabs["100pc"] is None:
                 slabs["100pc"] = slabs["20pcs"]
             if slabs["1box"] is None:
@@ -115,5 +120,6 @@ if st.button("🧠 Generate Quote") and raw_input:
                 st.write(f"• {matched} – {result}")
         else:
             st.write(f"• Couldn't match: '{line.strip()}'")
+
 
 
